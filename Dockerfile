@@ -19,12 +19,9 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy application code
 COPY . .
 
-# Expose port
+# Expose port (Railway will use PORT env variable)
 EXPOSE 10000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:10000/health')" || exit 1
-
 # Run the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "10000"]
+# Use Railway's PORT environment variable if set, otherwise default to 10000
+CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000}
