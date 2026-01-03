@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
+from pydantic import BaseModel
 from fastapi.responses import JSONResponse, HTMLResponse
 import tabula
 import pdfplumber
@@ -405,6 +406,7 @@ async def web_ui():
                 extractBtn.disabled = true;
                 
                 try {
+                    // 1. Extract Data
                     const response = await fetch('/extract', {
                         method: 'POST',
                         body: formData
@@ -416,32 +418,45 @@ async def web_ui():
                     result.style.display = 'block';
                     
                     if (data.status === 'success') {
-                        result.className = 'result';
-                        result.innerHTML = `
-                            <span class="badge success">✓ SUCCESS</span>
-                            <h2>Extraction Complete!</h2>
+                        // 2. Save to Database Automatically
+                        let valSaveStatus = '<span class="badge warning">Saving to DB...</span>';
+                        
+                        // Render initial result while saving happens in background
+                        renderResult(data, valSaveStatus);
+                        
+                        try {
+                            const saveResponse = await fetch('/save-to-db', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({
+                                    filename: pdfFile.files[0].name,
+                                    method: data.method,
+                                    rows: data.rows,
+                                    columns: data.columns,
+                                    data: data.data
+                                })
+                            });
                             
-                            <div class="stats">
-                                <div class="stat-card">
-                                    <div class="stat-value">${data.rows}</div>
-                                    <div class="stat-label">Rows Extracted</div>
-                                </div>
-                                <div class="stat-card">
-                                    <div class="stat-value">${data.columns.length}</div>
-                                    <div class="stat-label">Columns Found</div>
-                                </div>
-                                <div class="stat-card">
-                                    <div class="stat-value">${data.method}</div>
-                                    <div class="stat-label">Method Used</div>
-                                </div>
-                            </div>
+                            const saveData = await saveResponse.json();
                             
-                            <h3 style="margin-top: 20px; color: #667eea;">Columns:</h3>
-                            <p style="margin-bottom: 15px;">${data.columns.join(', ')}</p>
+                            if (saveResponse.ok && saveData.status === 'success') {
+                                valSaveStatus = '<span class="badge success">✓ Saved to Database</span>';
+                            } else {
+                                const errorDetail = saveData.detail || saveData.message || "Unknown DB Error";
+                                valSaveStatus = `<span class="badge error" title="${errorDetail}">✗ ${errorDetail}</span>`;
+                            }
                             
-                            <h3 style="margin-top: 20px; color: #667eea;">JSON Response:</h3>
-                            <pre>${JSON.stringify(data, null, 2)}</pre>
-                        `;
+                            // Re-render with new status
+                            renderResult(data, valSaveStatus);
+                            
+                        } catch (dbError) {
+                            console.error("DB Save Error", dbError);
+                            valSaveStatus = '<span class="badge error">✗ Connection Refused</span>';
+                            renderResult(data, valSaveStatus);
+                        }
+
                     } else {
                         result.className = 'result error';
                         result.innerHTML = `
@@ -465,6 +480,52 @@ async def web_ui():
                     extractBtn.disabled = false;
                 }
             });
+
+            function renderResult(data, saveStatus) {
+                const result = document.getElementById('result');
+                result.className = 'result';
+                result.innerHTML = `
+                    <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                        <span class="badge success">✓ Extracted Successfully</span>
+                        ${saveStatus}
+                    </div>
+                    
+                    <h2>Extraction Complete!</h2>
+                    
+                    <div class="stats">
+                        <div class="stat-card">
+                            <div class="stat-value">${data.rows}</div>
+                            <div class="stat-label">Rows Extracted</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">${data.columns.length}</div>
+                            <div class="stat-label">Columns Found</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">${data.method}</div>
+                            <div class="stat-label">Method Used</div>
+                        </div>
+                    </div>
+                    
+                    <h3 style="margin-top: 20px; color: #667eea;">Columns:</h3>
+                    <p style="margin-bottom: 15px;">${data.columns.join(', ')}</p>
+                    
+                    <div style="margin-top: 20px;">
+                        <a href="/view-extractions" target="_blank" style="
+                            display: inline-block;
+                            background: #667eea;
+                            color: white;
+                            padding: 10px 20px;
+                            border-radius: 8px;
+                            text-decoration: none;
+                            font-weight: bold;
+                        ">View in Database UI →</a>
+                    </div>
+
+                    <h3 style="margin-top: 20px; color: #667eea;">JSON Response:</h3>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+            }
         </script>
     </body>
     </html>
@@ -778,23 +839,17 @@ async def check_database_status():
         }
 
 
-@app.post("/save-to-db")
-async def save_extraction_to_db(
-    filename: str,
-    method: str,
-    rows: int,
-    columns: List[str],
+class ExtractionRequest(BaseModel):
+    filename: str
+    method: str
+    rows: int
+    columns: List[str]
     data: List[Dict[str, Any]]
-):
+
+@app.post("/save-to-db")
+async def save_extraction_to_db(request: ExtractionRequest):
     """
     Save extracted PDF data to MySQL database
-    
-    Args:
-        filename: Name of the PDF file
-        method: Extraction method used (tabula/pdfplumber)
-        rows: Number of rows extracted
-        columns: Column names
-        data: Extracted data rows
     """
     connection = get_db_connection()
     if not connection:
@@ -811,12 +866,12 @@ async def save_extraction_to_db(
             INSERT INTO extraction_logs 
             (filename, extraction_method, rows_count, columns_count, status)
             VALUES (%s, %s, %s, %s, %s)
-        """, (filename, method, rows, len(columns), 'success'))
+        """, (request.filename, request.method, request.rows, len(request.columns), 'success'))
         
         log_id = cursor.lastrowid
         
         # Insert each row into extracted_data
-        for row in data:
+        for row in request.data:
             cursor.execute("""
                 INSERT INTO extracted_data (extraction_log_id, row_data)
                 VALUES (%s, %s)
@@ -828,7 +883,7 @@ async def save_extraction_to_db(
         
         return {
             "status": "success",
-            "message": f"Saved {rows} rows to database",
+            "message": f"Saved {request.rows} rows to database",
             "extraction_id": log_id
         }
         
