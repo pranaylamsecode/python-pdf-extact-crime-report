@@ -1,5 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 import tabula
 import pdfplumber
 import pandas as pd
@@ -24,10 +24,480 @@ async def root():
     }
 
 
+@app.get("/ui", response_class=HTMLResponse)
+async def web_ui():
+    """Web UI for testing PDF extraction"""
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>PDF Table Extractor - Test UI</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                padding: 20px;
+            }
+            
+            .container {
+                background: white;
+                border-radius: 20px;
+                box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+                max-width: 900px;
+                width: 100%;
+                padding: 40px;
+            }
+            
+            h1 {
+                color: #667eea;
+                margin-bottom: 10px;
+                font-size: 2em;
+            }
+            
+            .subtitle {
+                color: #666;
+                margin-bottom: 30px;
+                font-size: 0.95em;
+            }
+            
+            .upload-area {
+                border: 3px dashed #667eea;
+                border-radius: 15px;
+                padding: 40px;
+                text-align: center;
+                background: #f8f9ff;
+                margin-bottom: 20px;
+                transition: all 0.3s ease;
+            }
+            
+            .upload-area:hover {
+                background: #f0f2ff;
+                border-color: #764ba2;
+            }
+            
+            .upload-area.dragover {
+                background: #e8ebff;
+                border-color: #764ba2;
+                transform: scale(1.02);
+            }
+            
+            input[type="file"] {
+                display: none;
+            }
+            
+            .file-label {
+                display: inline-block;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 15px 40px;
+                border-radius: 50px;
+                cursor: pointer;
+                font-size: 1em;
+                font-weight: 600;
+                transition: transform 0.2s;
+                box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+            }
+            
+            .file-label:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+            }
+            
+            .file-label:active {
+                transform: translateY(0);
+            }
+            
+            .file-name {
+                margin-top: 15px;
+                color: #667eea;
+                font-weight: 600;
+            }
+            
+            .upload-icon {
+                font-size: 3em;
+                margin-bottom: 15px;
+            }
+            
+            button {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                border: none;
+                padding: 15px 50px;
+                border-radius: 50px;
+                font-size: 1.1em;
+                font-weight: 600;
+                cursor: pointer;
+                width: 100%;
+                margin-top: 20px;
+                transition: all 0.3s ease;
+                box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+            }
+            
+            button:hover:not(:disabled) {
+                transform: translateY(-2px);
+                box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+            }
+            
+            button:disabled {
+                background: #ccc;
+                cursor: not-allowed;
+                box-shadow: none;
+            }
+            
+            .loading {
+                display: none;
+                text-align: center;
+                margin: 20px 0;
+            }
+            
+            .spinner {
+                border: 4px solid #f3f3f3;
+                border-top: 4px solid #667eea;
+                border-radius: 50%;
+                width: 40px;
+                height: 40px;
+                animation: spin 1s linear infinite;
+                margin: 0 auto 10px;
+            }
+            
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+            
+            .result {
+                display: none;
+                margin-top: 30px;
+                padding: 25px;
+                background: #f8f9ff;
+                border-radius: 15px;
+                border-left: 5px solid #667eea;
+            }
+            
+            .result h2 {
+                color: #667eea;
+                margin-bottom: 15px;
+                font-size: 1.5em;
+            }
+            
+            .stats {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                gap: 15px;
+                margin-bottom: 20px;
+            }
+            
+            .stat-card {
+                background: white;
+                padding: 20px;
+                border-radius: 10px;
+                text-align: center;
+                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            }
+            
+            .stat-value {
+                font-size: 2em;
+                font-weight: bold;
+                color: #667eea;
+            }
+            
+            .stat-label {
+                color: #666;
+                font-size: 0.9em;
+                margin-top: 5px;
+            }
+            
+            .badge {
+                display: inline-block;
+                background: #667eea;
+                color: white;
+                padding: 5px 15px;
+                border-radius: 20px;
+                font-size: 0.85em;
+                font-weight: 600;
+                margin-bottom: 15px;
+            }
+            
+            .badge.success {
+                background: #10b981;
+            }
+            
+            .badge.warning {
+                background: #f59e0b;
+            }
+            
+            pre {
+                background: #1e1e1e;
+                color: #d4d4d4;
+                padding: 20px;
+                border-radius: 10px;
+                overflow-x: auto;
+                font-size: 0.9em;
+                max-height: 400px;
+                overflow-y: auto;
+            }
+            
+            .error {
+                background: #fee;
+                border-left-color: #f00;
+                color: #c00;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>📄 PDF Table Extractor</h1>
+            <p class="subtitle">Upload a PDF file to extract tables using AI-powered extraction</p>
+            
+            <form id="uploadForm" enctype="multipart/form-data">
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📁</div>
+                    <label for="pdfFile" class="file-label">Choose PDF File</label>
+                    <input type="file" id="pdfFile" name="file" accept=".pdf" required>
+                    <div class="file-name" id="fileName"></div>
+                </div>
+                
+                <button type="submit" id="extractBtn" disabled>Extract Tables</button>
+            </form>
+            
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p>Extracting tables from PDF...</p>
+            </div>
+            
+            <div class="result" id="result"></div>
+        </div>
+        
+        <script>
+            const uploadArea = document.getElementById('uploadArea');
+            const pdfFile = document.getElementById('pdfFile');
+            const fileName = document.getElementById('fileName');
+            const extractBtn = document.getElementById('extractBtn');
+            const uploadForm = document.getElementById('uploadForm');
+            const loading = document.getElementById('loading');
+            const result = document.getElementById('result');
+            
+            // File input change
+            pdfFile.addEventListener('change', function() {
+                if (this.files.length > 0) {
+                    fileName.textContent = '✓ ' + this.files[0].name;
+                    extractBtn.disabled = false;
+                } else {
+                    fileName.textContent = '';
+                    extractBtn.disabled = true;
+                }
+            });
+            
+            // Drag and drop
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.classList.add('dragover');
+            });
+            
+            uploadArea.addEventListener('dragleave', () => {
+                uploadArea.classList.remove('dragover');
+            });
+            
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove('dragover');
+                
+                const files = e.dataTransfer.files;
+                if (files.length > 0 && files[0].type === 'application/pdf') {
+                    pdfFile.files = files;
+                    fileName.textContent = '✓ ' + files[0].name;
+                    extractBtn.disabled = false;
+                }
+            });
+            
+            // Form submission
+            uploadForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                const formData = new FormData();
+                formData.append('file', pdfFile.files[0]);
+                
+                loading.style.display = 'block';
+                result.style.display = 'none';
+                extractBtn.disabled = true;
+                
+                try {
+                    const response = await fetch('/extract', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const data = await response.json();
+                    
+                    loading.style.display = 'none';
+                    result.style.display = 'block';
+                    
+                    if (data.status === 'success') {
+                        result.className = 'result';
+                        result.innerHTML = `
+                            <span class="badge success">✓ SUCCESS</span>
+                            <h2>Extraction Complete!</h2>
+                            
+                            <div class="stats">
+                                <div class="stat-card">
+                                    <div class="stat-value">${data.rows}</div>
+                                    <div class="stat-label">Rows Extracted</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-value">${data.columns.length}</div>
+                                    <div class="stat-label">Columns Found</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-value">${data.method}</div>
+                                    <div class="stat-label">Method Used</div>
+                                </div>
+                            </div>
+                            
+                            <h3 style="margin-top: 20px; color: #667eea;">Columns:</h3>
+                            <p style="margin-bottom: 15px;">${data.columns.join(', ')}</p>
+                            
+                            <h3 style="margin-top: 20px; color: #667eea;">JSON Response:</h3>
+                            <pre>${JSON.stringify(data, null, 2)}</pre>
+                        `;
+                    } else {
+                        result.className = 'result error';
+                        result.innerHTML = `
+                            <span class="badge warning">⚠ NO TABLES FOUND</span>
+                            <h2>No tables detected in this PDF</h2>
+                            <p style="margin-top: 15px;">The PDF might not contain structured tables, or they might be in image format.</p>
+                        `;
+                    }
+                    
+                    extractBtn.disabled = false;
+                    
+                } catch (error) {
+                    loading.style.display = 'none';
+                    result.style.display = 'block';
+                    result.className = 'result error';
+                    result.innerHTML = `
+                        <span class="badge" style="background: #f00;">✗ ERROR</span>
+                        <h2>Extraction Failed</h2>
+                        <p style="margin-top: 15px;">${error.message}</p>
+                    `;
+                    extractBtn.disabled = false;
+                }
+            });
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
+
+
 @app.get("/health")
 async def health_check():
     """Health check for Railway"""
     return {"status": "healthy"}
+
+
+@app.get("/test-extract")
+async def test_extract_pdf(pdf_path: str) -> Dict[str, Any]:
+    """
+    Test endpoint: Extract tables from a local PDF file (for local testing only)
+    
+    Args:
+        pdf_path: Full path to PDF file on your local system
+        
+    Example:
+        http://127.0.0.1:8000/test-extract?pdf_path=C:/Users/YourName/Desktop/sample.pdf
+        
+    Returns:
+        JSON object containing extracted table data
+    """
+    
+    # Validate file exists
+    if not os.path.exists(pdf_path):
+        raise HTTPException(
+            status_code=404,
+            detail=f"File not found: {pdf_path}"
+        )
+    
+    # Validate file type
+    if not pdf_path.lower().endswith('.pdf'):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid file type. Please provide a PDF file."
+        )
+    
+    try:
+        # Try extraction with tabula-py first
+        try:
+            tables = tabula.read_pdf(
+                pdf_path,
+                pages="all",
+                lattice=True,
+                multiple_tables=True,
+                silent=True
+            )
+            
+            if tables and len(tables) > 0:
+                df = pd.concat(tables, ignore_index=True)
+                df = df.fillna("")
+                
+                return {
+                    "status": "success",
+                    "method": "tabula",
+                    "file": pdf_path,
+                    "rows": len(df),
+                    "columns": df.columns.tolist(),
+                    "data": df.to_dict(orient="records")
+                }
+        except Exception as tabula_error:
+            print(f"Tabula extraction failed: {tabula_error}")
+            
+            # Fallback to pdfplumber
+            try:
+                all_tables = []
+                with pdfplumber.open(pdf_path) as pdf:
+                    for page in pdf.pages:
+                        tables = page.extract_tables()
+                        if tables:
+                            for table in tables:
+                                all_tables.extend(table)
+                
+                if all_tables:
+                    df = pd.DataFrame(all_tables[1:], columns=all_tables[0])
+                    df = df.fillna("")
+                    
+                    return {
+                        "status": "success",
+                        "method": "pdfplumber",
+                        "file": pdf_path,
+                        "rows": len(df),
+                        "columns": df.columns.tolist(),
+                        "data": df.to_dict(orient="records")
+                    }
+            except Exception as pdfplumber_error:
+                print(f"PDFPlumber extraction failed: {pdfplumber_error}")
+        
+        return {
+            "status": "no_tables",
+            "file": pdf_path,
+            "message": "No tables found in the PDF file"
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing PDF: {str(e)}"
+        )
 
 
 @app.post("/extract")
